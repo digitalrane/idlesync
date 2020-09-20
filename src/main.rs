@@ -4,7 +4,7 @@ extern crate pretty_env_logger;
 #[macro_use] extern crate serde_derive;
 extern crate serde_yaml;
 
-use async_imap::error::{Error, Result};
+use async_imap::error::{Result};
 use async_imap::extensions::idle::IdleResponse::*;
 use async_std::task;
 use futures::stream;
@@ -12,8 +12,7 @@ use futures_util::stream::StreamExt;
 use std::time::Duration;
 use std::fs::File;
 use std::io::BufReader;
-
-const RETRY_TIME: u64 = 60;
+use std::process::Command;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Account {
@@ -21,7 +20,7 @@ struct Account {
     user: String,
     pass: String,
     tls: bool,
-    handlers: Vec<String>,
+    commands: Vec<String>,
     port: Option<u16>,
     name: Option<String>,
     folders: Option<Vec<String>>,
@@ -29,10 +28,10 @@ struct Account {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Settings {
-    accounts: Vec<Account>
+    accounts: Vec<Account>,
+    idle_timeout: Option<u64>,
+    retry: Option<u64>,
 }
-
-
 
 fn status_out(message: String) {
         info!("{}", message);
@@ -58,6 +57,13 @@ async fn async_main() -> Result<()> {
         let mut settings: Settings = serde_yaml::from_reader(config_file_reader).unwrap();
         
         // check and clean settings
+        if settings.retry.is_none() {
+            settings.retry = Some(60);
+        }
+        if settings.idle_timeout.is_none() {
+            settings.idle_timeout = Some(600);
+        }
+
         for account in settings.accounts.iter_mut() {
             if account.name.is_none() {
                 account.name = Some(String::from(&*account.host));
@@ -71,16 +77,18 @@ async fn async_main() -> Result<()> {
             }
         }
         trace!("Settings: {:?}", settings);
+        let retry = settings.retry.unwrap();
+        let idle_timeout = settings.idle_timeout.unwrap();
 
         // generate async futures for each account and schedule them
         let account_stream = stream::iter(settings.accounts);
         account_stream
             .for_each_concurrent(None, |account| async move {
-                while let result = monitor_account(&account).await {
+                while let result = monitor_account(&account, &idle_timeout).await {
                     match result {
                         Err(e) => {
-                            error!("{:?}: IMAP connection error: {}. Will retry in {}.", account.name, e, retry_time);
-                            task::sleep(Duration::from_secs(retry_time)).await;
+                            error!("{:?}: IMAP connection error: {}. Will retry in {}.", account.name, e, retry);
+                            task::sleep(Duration::from_secs(retry)).await;
                         },
                         Ok(v) => v,
                     }
@@ -89,15 +97,28 @@ async fn async_main() -> Result<()> {
         Ok(())
 }
 
-fn main() -> Result<()> {
-    task::block_on(async_main())
+async fn run_command(command: &String) -> Result<()> {
+    // just *nix for now, would be easy to extend
+    let command_result = Command::new("sh")
+                                  .arg("-c")
+                                  .arg(command)
+                                  .output()
+                                  .expect("failed to execute process");
+    if command_result.status.success() == false {
+        error!("Command {} failed, stderr: {}", command, String::from_utf8_lossy(&command_result.stderr));
+    }
+    Ok(())
 }
 
-async fn run_handler(account: &Account) -> Result<()> {
-    status_out("Henlo".to_string());
+async fn run_handlers(account: &Account) -> Result<()> {
+    for command in &account.commands {
+        status_out(format!("Running command {}", command));
+        run_command(command).await;
+    }
+    Ok(())
 }
 
-async fn monitor_account(account: &Account) -> Result<()> {
+async fn monitor_account(account: &Account, idle_timeout: &u64) -> Result<()> {
     let tls = async_native_tls::TlsConnector::new();
     // we dereference (*) the host to get a str for the ToSocketAddrs impl
     let imap_addr = (&*account.host, account.port.unwrap());
@@ -126,14 +147,8 @@ async fn monitor_account(account: &Account) -> Result<()> {
     status_out(format!("{}: Watching folders via IDLE", name));
     let mut idle = session.idle();
     idle.init().await?;
-    let (idle_wait, interrupt) = idle.wait();
 
-    if idle_timeout {
-        task::sleep(Duration::from_secs(idle_timeout)).await;
-        status_out(format!("{}: Waited {} secs, now interrupting IDLE for manual sync", name, idle_timeout);
-        drop(interrupt);
-    }
-
+    let (idle_wait, _interrupt) = idle.wait_with_timeout(Duration::from_secs(*idle_timeout));
     let idle_result = idle_wait.await?;
     status_out(format!("{}: IMAP IDLE timed out or woke up", name));
     match idle_result {
@@ -149,7 +164,7 @@ async fn monitor_account(account: &Account) -> Result<()> {
         }
     }
     status_out(format!("{}: IMAP IDLE woke up, running handler", name));
-    run_handler(account).await;
+    run_handlers(account).await;
 
     // return the session after we are done with it
     trace!("{}: sending DONE prior to logout", name);
@@ -160,3 +175,8 @@ async fn monitor_account(account: &Account) -> Result<()> {
     session.logout().await?;
     Ok(())
 }
+
+fn main() -> Result<()> {
+    task::block_on(async_main())
+}
+
