@@ -18,7 +18,7 @@ Design Goals
 
  * As async as possible
  * Low resource (and power) usage
- * Configurabile
+ * Configurable
 
 Known Limitations
 =================
