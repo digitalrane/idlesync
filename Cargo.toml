@@ -1,0 +1,20 @@
+[package]
+name = "idlesync"
+version = "0.1.0"
+authors = ["James Hebden <james@ec0.io>"]
+edition = "2018"
+
+[dependencies]
+async-imap = "^0.4"
+async-macros = "^2.0"
+async-native-tls = "^0.3"
+async-process = "^1.0"
+async-std = "^1.6"
+futures = "^0.3"
+futures-util = "^0.3"
+log = "^0.4"
+pretty_env_logger = "^0.4"
+serde = "^1.0"
+serde_yaml = "^0.8"
+serde_derive = "^1.0"
+xdg = "^2.1"
