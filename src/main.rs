@@ -84,7 +84,8 @@ async fn async_main() -> Result<()> {
         let account_stream = stream::iter(settings.accounts);
         account_stream
             .for_each_concurrent(None, |account| async move {
-                while let result = monitor_account(&account, &idle_timeout).await {
+                loop {
+                    let result = monitor_account(&account, &idle_timeout).await;
                     match result {
                         Err(e) => {
                             error!("{:?}: IMAP connection error: {}. Will retry in {}.", account.name, e, retry);
@@ -97,14 +98,14 @@ async fn async_main() -> Result<()> {
         Ok(())
 }
 
-async fn run_command(command: &String) -> Result<()> {
+async fn run_command(command: &str) -> Result<()> {
     // just *nix for now, would be easy to extend
     let command_result = Command::new("sh")
                                   .arg("-c")
                                   .arg(command)
                                   .output()
                                   .expect("failed to execute process");
-    if command_result.status.success() == false {
+    if !command_result.status.success() {
         error!("Command {} failed, stderr: {}", command, String::from_utf8_lossy(&command_result.stderr));
     }
     Ok(())
@@ -113,7 +114,11 @@ async fn run_command(command: &String) -> Result<()> {
 async fn run_handlers(account: &Account) -> Result<()> {
     for command in &account.commands {
         status_out(format!("Running command {}", command));
-        run_command(command).await;
+        let run_result = run_command(command).await;
+        match run_result {
+            Ok(()) => status_out(format!("Command {} ran successfully", command)),
+            Err(e) => status_out(format!("Error running {}: {}", command, e)),
+        }
     }
     Ok(())
 }
@@ -164,7 +169,11 @@ async fn monitor_account(account: &Account, idle_timeout: &u64) -> Result<()> {
         }
     }
     status_out(format!("{}: IMAP IDLE woke up, running handler", name));
-    run_handlers(account).await;
+    let handler_result = run_handlers(account).await;
+    match handler_result {
+        Ok(()) => status_out("Handlers ran successfully".to_string()),
+        Err(e) => status_out(format!("Hander reported an error: {}", e)),
+    }
 
     // return the session after we are done with it
     trace!("{}: sending DONE prior to logout", name);
