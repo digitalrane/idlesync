@@ -5,15 +5,21 @@ authors = ["James Hebden <james@ec0.io>"]
 edition = "2018"
 
 [dependencies]
-async-imap = "^0.4"
-async-macros = "^2.0"
-async-native-tls = "^0.3"
-async-std = "^1.6"
+async-imap = "^0.6"
 futures = "^0.3"
 futures-util = "^0.3"
 log = "^0.4"
-pretty_env_logger = "^0.4"
 serde = "^1.0"
 serde_yaml = "^0.8"
 serde_derive = "^1.0"
 xdg = "^2.1"
+tokio = { version = "1.23.0", features = ["full"] }
+clap = { version = "4.0.29", features = ["cargo", "env"] }
+fern = { version = "0.6.1", features = ["chrono", "colored"] }
+config = "0.13.3"
+async-std = { version = "1.12.0", features = ["default", "unstable", "tokio1"] }
+async-rustls = "0.3.0"
+chrono = "0.4.23"
+rustls = "0.20.7"
+webpki-roots = "0.22.6"
+async-native-tls = { version = "0.4.0" }
