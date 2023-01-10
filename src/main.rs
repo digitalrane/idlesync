@@ -106,7 +106,7 @@ async fn main() {
 	let cloned_account = account.clone();
 	let cloned_idle_timeout = config.idle_timeout.clone();
 	let cloned_retry = config.retry.clone();
-	workers.push(task::spawn( async move { monitor_account(&cloned_account, &cloned_idle_timeout, &cloned_retry).await}));
+	workers.push(task::spawn( async move { monitor_account(cloned_account, cloned_idle_timeout, cloned_retry).await}));
     }
 
     let _results: Vec<_> = workers.collect().await;
@@ -140,7 +140,7 @@ async fn run_handlers(name: String, commands: Vec<String>) -> Result<(), Box<dyn
     Ok(())
 }
 
-async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u64)
+async fn monitor_account(account: conf::Account, idle_timeout: u64, retry: u64)
 {
 
     loop {
@@ -171,7 +171,7 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
 	    },
 	    Err(e) => {
 		error!("{}: failed to connect to {} {}: {:?}", name, imap_host, imap_port, e);
-		sleep(Duration::from_secs(*retry)).await;
+		sleep(Duration::from_secs(retry)).await;
 		continue
 	    }
 	};
@@ -180,23 +180,22 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
 	// to do anything useful with the e-mails, we need to log in
 	let mut session = match client.login(user.clone(), password.clone()).await.map_err(|e| e.0) {
 	    Ok(session) => {
-		info!("{}: logged into {} {}", name, imap_host, imap_port);
+		info!("{}: logged in to {} {}", name, imap_host, imap_port);
 		session
 	    },
 	    Err(e) => {
 		error!("failed to log in to {} at {} {}: {:?}", name, imap_host, imap_port, e);
-		sleep(Duration::from_secs(*retry)).await;
+		sleep(Duration::from_secs(retry)).await;
 		continue
 	    }
 	};
-	info!("{}: Logged in as {}", name, user);
 
 	// we want to fetch some messages from the INBOX
 	match session.select("INBOX").await {
 	    Ok(_) => debug!("{}: selected INBOX", name),
 	    Err(e) => {
 		error!("{}: failed to select INBOX: {:?}", name, e);
-		sleep(Duration::from_secs(*retry)).await;
+		sleep(Duration::from_secs(retry)).await;
 		continue
 	    }
 	}
@@ -209,7 +208,7 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
 	    },
 	    Err(e) => {
 		error!("{}: failed to fetch message flags: {:?}", name, e);
-		sleep(Duration::from_secs(*retry)).await;
+		sleep(Duration::from_secs(retry)).await;
 		continue
 	    }
 	};
@@ -224,7 +223,8 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
 	    Err(e) => error!("{}: failed to initialise IDLE: {:?}", name, e)
 	}
 
-	let (idle_wait, _interrupt) = idle.wait_with_timeout(Duration::from_secs(*idle_timeout));
+	info!("{}: waiting for new mail or timeout of {}s", name, idle_timeout);
+	let (idle_wait, _interrupt) = idle.wait_with_timeout(Duration::from_secs(idle_timeout));
 	let _idle_result = match idle_wait.await {
             Ok(ManualInterrupt) => {
 		info!("{}: IDLE manually interrupted, will re-establish", name);
@@ -239,7 +239,7 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
             },
 	    Err(e) => {
 		error!("{}: failed to wait for IDLE result, will retry connection: {:?}", name, e);
-		sleep(Duration::from_secs(*retry)).await;
+		sleep(Duration::from_secs(retry)).await;
 		continue
 	    }
 	};
@@ -260,7 +260,7 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
 	    Ok(session) => session,
 	    Err(e) => {
 		warn!("{}: error sending DONE prior to logout: {:?}", name, e);
-		sleep(Duration::from_secs(*retry)).await;
+		sleep(Duration::from_secs(retry)).await;
 		continue
 	    },
 	};
@@ -273,6 +273,6 @@ async fn monitor_account(account: &conf::Account, idle_timeout: &u64, retry: &u6
 	}
 
         debug!("{}: IMAP connection ended. will retry in {}s.", name, retry);
-        sleep(Duration::from_secs(*retry)).await;
+        sleep(Duration::from_secs(retry)).await;
     }
 }

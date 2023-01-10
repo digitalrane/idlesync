@@ -1,11 +1,21 @@
 use config::{Config, FileFormat, File};
 use serde::Deserialize;
 
+fn default_idle_timeout() -> u64 {
+    // 15 minutes
+    900
+}
+
+fn default_retry_timeout() -> u64 {
+    // 10 seconds
+    10
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Conf {
-    #[serde(default)]
+    #[serde(default="default_retry_timeout")]
     pub retry: u64,
-    #[serde(default)]
+    #[serde(default="default_idle_timeout")]
     pub idle_timeout: u64,
     #[serde(default)]
     pub accounts: Vec<Account>,
